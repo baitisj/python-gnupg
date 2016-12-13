@@ -665,6 +665,7 @@ class Sign(TextHandler):
         self.type = None
         self.hash_algo = None
         self.fingerprint = None
+        self.status = None
 
     def __nonzero__(self):
         return self.fingerprint is not None
