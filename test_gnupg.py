@@ -2,7 +2,7 @@
 """
 A test harness for gnupg.py.
 
-Copyright (C) 2008-2016 Vinay Sajip. All rights reserved.
+Copyright (C) 2008-2017 Vinay Sajip. All rights reserved.
 """
 import doctest
 import logging
@@ -28,7 +28,7 @@ except ImportError:
 import gnupg
 
 __author__ = "Vinay Sajip"
-__date__  = "$10-Sep-2016 08:38:57$"
+__date__  = "$06-Jul-2017 15:09:39$"
 
 ALL_TESTS = True
 
@@ -177,7 +177,7 @@ class GPGTestCase(unittest.TestCase):
         if os.path.exists(hd):
             self.assertTrue(os.path.isdir(hd),
                             "Not a directory: %s" % hd)
-            shutil.rmtree(hd)
+            shutil.rmtree(hd, ignore_errors=True)
         prepare_homedir(hd)
         self.homedir = hd
         self.gpg = gpg = gnupg.GPG(gnupghome=hd, gpgbinary=GPGBINARY)
@@ -321,7 +321,13 @@ class GPGTestCase(unittest.TestCase):
         fp = key_info['fingerprint']
         self.assertTrue(fp in public_keys.key_map)
         self.assertTrue(public_keys.key_map[fp] is key_info)
-        for _, _, sfp in key_info['subkeys']:
+        self.assertTrue('subkey_info' in key_info)
+        skinfo = key_info['subkey_info']
+        for skid, _, sfp in key_info['subkeys']:
+            self.assertTrue(skid in skinfo)
+            info = skinfo[skid]
+            self.assertEqual(info['keyid'], skid)
+            self.assertEqual(info['type'], 'sub')
             self.assertTrue(sfp in public_keys.key_map)
             self.assertTrue(public_keys.key_map[sfp] is key_info)
 
@@ -334,9 +340,15 @@ class GPGTestCase(unittest.TestCase):
         self.assertTrue(fp in public_keys_sigs.key_map)
         self.assertTrue(public_keys_sigs.key_map[fp] is key_info)
         self.assertTrue(is_list_with_len(key_info['sigs'], 2))
+        self.assertTrue('subkey_info' in key_info)
+        skinfo = key_info['subkey_info']
         for siginfo in key_info['sigs']:
             self.assertTrue(len(siginfo), 3)
-        for _, _, sfp in key_info['subkeys']:
+        for skid, _, sfp in key_info['subkeys']:
+            self.assertTrue(skid in skinfo)
+            info = skinfo[skid]
+            self.assertEqual(info['keyid'], skid)
+            self.assertEqual(info['type'], 'sub')
             self.assertTrue(sfp in public_keys_sigs.key_map)
             self.assertTrue(public_keys_sigs.key_map[sfp] is key_info)
 
@@ -344,6 +356,14 @@ class GPGTestCase(unittest.TestCase):
         self.assertTrue(is_list_with_len(private_keys, 1),
                         "1-element list expected")
         self.assertEqual(len(private_keys.fingerprints), 1)
+        key_info = private_keys[0]
+        self.assertTrue('subkey_info' in key_info)
+        skinfo = key_info['subkey_info']
+        self.assertTrue(skid in skinfo)
+        info = skinfo[skid]
+        self.assertEqual(info['keyid'], skid)
+        self.assertEqual(info['type'], 'ssb')
+
         # Now do the same test, but using keyring and secret_keyring arguments
         if self.gpg.version < (2, 1):
             pkn = 'pubring.gpg'
@@ -399,6 +419,29 @@ class GPGTestCase(unittest.TestCase):
                         'Donna Davis <donna.davis@delta.com>'])
         self.assertEqual(actual, expected)
 
+    def test_key_trust(self):
+        "Test that trusting keys works"
+        gpg = self.gpg
+        gpg.import_keys(KEYS_TO_IMPORT)
+        keys = gpg.list_keys()
+        fingerprints = []
+        for key in keys:
+            self.assertEqual(key['ownertrust'], '-')
+            fingerprints.append(key['fingerprint'])
+        cases = (
+            ('TRUST_NEVER', 'n'),
+            ('TRUST_MARGINAL', 'm'),
+            ('TRUST_FULLY', 'f'),
+            ('TRUST_ULTIMATE', 'u'),
+            ('TRUST_UNDEFINED', 'q'),
+        )
+        for param, expected in cases:
+            gpg.trust_keys(fingerprints, param)
+            keys = gpg.list_keys(keys=fingerprints)
+            for key in keys:
+                self.assertEqual(key['ownertrust'], expected)
+        self.assertRaises(ValueError, gpg.trust_keys, fingerprints, 'TRUST_FOOBAR')
+
     def test_list_signatures(self):
         logger.debug("test_list_signatures begins")
         imported = self.gpg.import_keys(SIGNED_KEYS)
@@ -439,7 +482,6 @@ class GPGTestCase(unittest.TestCase):
         key = self.generate_key("Barbara", "Brown", "beta.com")
         barbara = key.fingerprint
         gpg = self.gpg
-        gpg.encoding = 'latin-1'
         if gnupg._py3k:
             data = 'Hello, André!'
         else:
@@ -471,6 +513,27 @@ class GPGTestCase(unittest.TestCase):
         self.assertEqual(data, str(ddata))
         # Test that you can't encrypt with no recipients
         self.assertRaises(ValueError, self.gpg.encrypt, data, [])
+        # Test extra_args parameter
+        edata = str(gpg.encrypt(data, barbara, extra_args=['-z', '0']))
+        ddata = gpg.decrypt(edata, passphrase='bbrown')
+        self.assertEqual(data.encode('ascii'), ddata.data, 'Round-trip must work')
+        # Test on_data functionality
+
+        chunks = []
+
+        def collector(data):
+            chunks.append(data)
+
+        gpg.on_data = collector
+        edata = str(gpg.encrypt(data, barbara))
+        self.assertTrue(chunks)
+        expected = type(chunks[0])().join(chunks)
+        self.assertEqual(expected.decode('ascii'), edata)
+        chunks = []
+        ddata = gpg.decrypt(edata, passphrase='bbrown')
+        self.assertEqual(data.encode('ascii'), ddata.data, 'Round-trip must work')
+        expected = type(chunks[0])().join(chunks)
+        self.assertEqual(expected.decode('ascii'), data)
 
     def test_import_and_export(self):
         "Test that key import and export works"
@@ -535,7 +598,6 @@ class GPGTestCase(unittest.TestCase):
         "Test that signing and verification works"
         logger.debug("test_signature_verification begins")
         key = self.generate_key("Andrew", "Able", "alpha.com")
-        self.gpg.encoding = 'latin-1'
         if gnupg._py3k:
             data = 'Hello, André!'
         else:
@@ -545,6 +607,8 @@ class GPGTestCase(unittest.TestCase):
         self.assertFalse(sig, "Bad passphrase should fail")
         sig = self.gpg.sign(data, keyid=key.fingerprint, passphrase='aable')
         self.assertTrue(sig, "Good passphrase should succeed")
+        self.assertTrue(sig.username.startswith('Andrew Able'))
+        self.assertTrue(key.fingerprint.endswith(sig.key_id))
         self.assertTrue(sig.hash_algo)
         verified = self.gpg.verify(sig.data)
         if key.fingerprint != verified.fingerprint:  # pragma: no cover
@@ -627,6 +691,8 @@ class GPGTestCase(unittest.TestCase):
         data_file.close()
         try:
             verified = self.gpg.verify_data(sig_file, data)
+            self.assertTrue(verified.username.startswith('Andrew Able'))
+            self.assertTrue(key.fingerprint.endswith(verified.key_id))
         finally:
             os.unlink(sig_file)
         if key.fingerprint != verified.fingerprint:
@@ -651,8 +717,9 @@ class GPGTestCase(unittest.TestCase):
 
     def test_nogpg(self):
         "Test that absence of gpg is handled correctly"
-        self.assertRaises(OSError, gnupg.GPG, gnupghome=self.homedir,
-                          gpgbinary='frob')
+        with self.assertRaises(OSError) as ar:
+            gnupg.GPG(gnupghome=self.homedir, gpgbinary='frob')
+        self.assertIn('frob', str(ar.exception))
 
     def test_make_args(self):
         "Test argument line construction"
@@ -738,7 +805,7 @@ class GPGTestCase(unittest.TestCase):
             decfname = os.path.join(d, 'decrypted file')
             self.do_file_encryption_and_decryption(encfname, decfname)
         finally:
-            shutil.rmtree(d)
+            shutil.rmtree(d, ignore_errors=True)
         logger.debug("test_filename_with_spaces ends")
 
     #@skipIf(os.name == 'nt', 'Test not suitable for Windows')
@@ -774,7 +841,7 @@ class GPGTestCase(unittest.TestCase):
             files = os.listdir(workdir)
             self.assertEqual(files, ["'ab?'"])
         finally:
-            shutil.rmtree(workdir)
+            shutil.rmtree(workdir, ignore_errors=True)
 
     def disabled_test_signing_with_uid(self):  # pragma: no cover
         "Test that signing with uids works. On hold for now."
@@ -799,7 +866,7 @@ class GPGTestCase(unittest.TestCase):
         replicates the original doctest for import_keys as a regular test.
 
         >>> import shutil
-        >>> shutil.rmtree("keys")
+        >>> shutil.rmtree("keys", ignore_errors=True)
         >>> GPGBINARY = os.environ.get('GPGBINARY', 'gpg')
         >>> gpg = GPG(gpgbinary=GPGBINARY, gnupghome="keys")
         >>> input = gpg.gen_key_input(name_email='user1@test', passphrase='pp1')
@@ -880,7 +947,8 @@ class GPGTestCase(unittest.TestCase):
 
 
 TEST_GROUPS = {
-    'sign' : set(['test_signature_verification']),
+    'sign' : set(['test_signature_verification',
+                  'test_signature_file']),
     'crypt' : set(['test_encryption_and_decryption',
                    'test_file_encryption_and_decryption',
                    'test_filenames_with_spaces']),
@@ -891,12 +959,12 @@ TEST_GROUPS = {
                  'test_key_generation_with_escapes',
                  'test_key_generation_with_empty_value',
                  'test_key_generation_with_colons',
-                 'test_search_keys', 'test_scan_keys']),
+                 'test_search_keys', 'test_scan_keys', 'test_key_trust']),
     'import' : set(['test_import_only', 'test_doctest_import_keys']),
     'basic' : set(['test_environment', 'test_list_keys_initial',
                    'test_nogpg', 'test_make_args',
                    'test_quote_with_shell']),
-    'test': set(['test_doctest_import_keys']),
+    'test': set(['test_key_trust']),
 }
 
 def suite(args=None):

@@ -1,14 +1,20 @@
 .. GnuPG Wrapper for Python documentation master file, created by
    sphinx-quickstart on Thu Jul 02 16:14:12 2009.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
 
 ###########################################
 `python-gnupg` - A Python wrapper for GnuPG
 ###########################################
 
-:Release: |release|
-:Date: |today|
+.. rst-class:: release-info
+
+   .. list-table::
+      :widths: auto
+      :stub-columns: 1
+
+      * - Release:
+        - |release|
+      * - Date:
+        - Jul 06, 2017
 
 .. module:: gnupg
    :synopsis: A Python wrapper for the GNU Privacy Guard (GnuPG)
@@ -18,7 +24,7 @@
 
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 4
 
 The ``gnupg`` module allows Python programs to make use of the functionality provided by the `GNU Privacy Guard`__ (abbreviated GPG or GnuPG). Using
 this module, Python programs can encrypt and decrypt data, digitally sign documents and verify digital signatures, manage (generate, list and delete)
@@ -29,6 +35,10 @@ Development and testing has been carried out on Windows (Python 2.4, 2.5, 2.6, 3
 2.6, 2.7, 3.0, 3.1, Jython 2.5.1). It should work with more recent versions of Python, too. Install this module using ``pip install python-gnupg``.
 You can then use this module in your own code by doing ``import gnupg`` or similar.
 
+.. note::
+   There is at least one fork of this project, which was apparently created because an earlier version of this software used the ``subprocess`` module with ``shell=True``, making it vulnerable to shell injection. **This is no longer the case**.
+
+   Forks may not be drop-in compatible with this software, so take care to use the correct version, as indicated in the ``pip install`` command above.
 
 __ gnupg_
 
@@ -85,6 +95,8 @@ I've gratefully incorporated improvements contributed or suggested by:
 * Venzen Khaosan (scan_keys functionality)
 * Marcel Pörner (handle EXPORTED, EXPORT_RES)
 * Kévin Bernard-Allies (handle filename encoding under Windows)
+* Daniel Kahn Gillmor (various improvements which were released in 0.4.1)
+* William Foster (trust_key patch)
 
 and Google Code / BitBucket users
 
@@ -216,7 +228,8 @@ __ parm_details_
 +---------------+------------------+--------------------------------+---------------------------------------------+
 | Passphrase    | passphrase       | "secret"                       | The passphrase to use. If this parameter is |
 |               |                  |                                | not specified, no passphrase is needed to   |
-|               |                  |                                | access the key.                             |
+|               |                  |                                | access the key. *Passphrases using newlines |
+|               |                  |                                | are not supported*.                         |
 +---------------+------------------+--------------------------------+---------------------------------------------+
 
 Whatever keyword arguments you pass to :meth:`gen_key_input` will be converted to the parameters expected by GnuPG by replacing underscores with hyphens and title-casing the result. You can of course construct the parameters in your own dictionary ``params`` and then pass it as follows::
@@ -252,12 +265,16 @@ The ``export_keys`` method has some additional keyword arguments:
 * ``armor`` (defaulting to ``True``) - when ``True``, passes ``--armor`` to ``gpg``.
 * ``minimal`` (defaulting to ``False``) - when ``True``, passes ``--export-options export-minimal`` to ``gpg``.
 * ``passphrase`` - if specified, sends the specified passphrase to ``gpg``. For GnuPG >= 2.1, exporting secret keys requires a passphrase to be provided.
+* ``expect_passphrase`` - defaults to ``True`` for backward compatibility. If the passphrase is to be passed to ``gpg`` via pinentry, you wouldn't pass it here - so specify ``expect_passphrase=False`` in that case. If you don't do that, and don't pass a passphrase, a ``ValueError`` will be raised.
 
 .. versionadded:: 0.3.7
    The ``armor`` and ``minimal`` keyword arguments were added.
 
 .. versionadded:: 0.4.0
    The ``passphrase`` keyword argument was added.
+
+.. versionadded:: 0.4.2
+   The ``expect_passphrase`` keyword argument was added.
 
 .. index:: Key; importing
 
@@ -293,6 +310,69 @@ Now that we've seen how to generate, import and export keys, let's move on to fi
 
 The returned value from :meth:`list_keys` is a subclass of Python's ``list`` class. Each entry represents one key and is a Python dictionary which contains useful information about the corresponding key.
 
+The following entries are in the returned dictionary. Some of the key names are
+not ideal for describing the values, but they have been left as is for backward
+compatibility reasons. As `GnuPG documentation
+<https://git.gnupg.org/cgi-bin/gitweb.cgi?p=gnupg.git;a=blob_plain;f=doc/DETAILS>`_
+has improved, a better understanding is possible of the information returned by
+``gpg``.
+
++--------------+---------------------------------------------------------------+
+| dict key     | dict value (all string values)                                |
++==============+===============================================================+
+| type         | Type of key                                                   |
++--------------+---------------------------------------------------------------+
+| trust        | The validity of the key                                       |
++--------------+---------------------------------------------------------------+
+| length       | The length of the key in bits                                 |
++--------------+---------------------------------------------------------------+
+| algo         | Public key algorithm                                          |
++--------------+---------------------------------------------------------------+
+| keyid        | The key ID                                                    |
++--------------+---------------------------------------------------------------+
+| date         | The creation date of the key in UTC as a Unix timestamp       |
++--------------+---------------------------------------------------------------+
+| expires      | The expiry date of the key in UTC as a timestamp, if specified|
++--------------+---------------------------------------------------------------+
+| dummy        | Certificate serial number, UID hash or trust signature info   |
++--------------+---------------------------------------------------------------+
+| ownertrust   | The level of owner trust for the key                          |
++--------------+---------------------------------------------------------------+
+| uid          | The user ID                                                   |
++--------------+---------------------------------------------------------------+
+| sig          | Signature class                                               |
++--------------+---------------------------------------------------------------+
+| cap          | Key capabilities                                              |
++--------------+---------------------------------------------------------------+
+| issuer       | Issuer information                                            |
++--------------+---------------------------------------------------------------+
+| flag         | A flag field                                                  |
++--------------+---------------------------------------------------------------+
+| token        | Token serial number                                           |
++--------------+---------------------------------------------------------------+
+| hash         | Hash algorithm                                                |
++--------------+---------------------------------------------------------------+
+| curve        | Curve name for elliptic curve cryptography (ECC) keys         |
++--------------+---------------------------------------------------------------+
+| compliance   | Compliance flags                                              |
++--------------+---------------------------------------------------------------+
+| updated      | Last updated timestamp                                        |
++--------------+---------------------------------------------------------------+
+| origin       | Origin of keys                                                |
++--------------+---------------------------------------------------------------+
+| subkeys      | A list containing [keyid, type] elements for each subkey      |
++--------------+---------------------------------------------------------------+
+| subkey_info  | A dictionary of subkey information keyed on subkey id         |
++--------------+---------------------------------------------------------------+
+
+Depending on the version of ``gpg`` used, some of these keys may have the value
+``'unavailable'``. The last two keys are provided by ``python-gnupg`` rather than
+``gpg``.
+
+For more information about the values in this dictionary, refer to the GnuPG
+documentation linked above. (Note that that documentation is not terribly
+user-friendly, but nevertheless it should be usable.)
+
 .. versionadded:: 0.3.8
    The returned value from :meth:`list_keys` now has a new attribute, ``key_map``, which is a dictionary mapping key and subkey fingerprints to the corresponding key's dictionary. With this change, you don't need to iterate over the (potentially large) returned list to search for a key with a given fingerprint - the ``key_map`` dict will take you straight to the key info, whether the fingerprint you have is for a key or a subkey.
 
@@ -304,7 +384,43 @@ The returned value from :meth:`list_keys` is a subclass of Python's ``list`` cla
 
    It doesn't make sense to supply both ``secret=True`` *and* ``sigs=True`` (people can't sign your secret keys), so in case ``secret=True`` is specified, the ``sigs=`` value has no effect.
 
+.. versionadded:: 0.4.1
+   Instances of the ``GPG`` class now have an additional ``on_data`` attribute,
+   which defaults to ``None``. It can be set to a callable which will be called
+   with a single argument - a binary chunk of data received from the ``gpg``
+   executable. The callable can do whatever it likes with the chunks passed to
+   it - e.g. write them to a separate stream. The callable should not raise any
+   exceptions (unless it wants the current operation to fail).
+
+.. versionadded:: 0.4.2
+   Information on keys returned by :meth:`list_keys` or :meth:`scan_keys` now
+   incudes a ``subkey_info`` dictionary, which contains any returned information
+   on subkeys such as creation and expiry dates. The dictionary is keyed on the
+   subkey ID. The following additional keys are present in key information
+   dictionaries: ``cap``, ``issuer``, ``flag``, ``token``, ``hash``, ``curve``,
+   ``compliance``, ``updated`` and ``origin``.
+
 .. _RFC-4880: https://tools.ietf.org/html/rfc4880#section-5.2.1
+
+
+.. index:: Key; trusting
+
+Setting the trust level for imported keys
+-----------------------------------------
+
+You can set the trust level for imported keys as follows::
+
+    >>> gpg.trust_keys(fingerprints, trustlevel)
+
+where the ``fingerprints`` are a list of fingerprints of keys for which the
+trust level is to be set, and ``trustlevel`` is one of the string values
+``'TRUST_UNDEFINED'``, ``'TRUST_NEVER'``, ``'TRUST_MARGINAL'``,
+``'TRUST_FULLY'`` or ``'TRUST_ULTIMATE'``.
+
+You can also specify a single fingerprint for the ``fingerprints`` parameter.
+
+.. versionadded:: 0.4.2
+   The ``trust_keys`` method was added.
 
 .. index:: Key; scanning
 
@@ -339,6 +455,17 @@ To delete keys, their key identifiers must be specified. If a public/private key
     'No such key'
 
 The argument you pass to :meth:`delete_keys` can be either a single key identifier (e.g. keyid or fingerprint) or a sequence of key identifiers.
+
+The ``delete_keys`` method has some additional keyword arguments:
+
+* ``passphrase`` - if specified, sends the specified passphrase to ``gpg``. For GnuPG >= 2.1, exporting secret keys requires a passphrase to be provided.
+* ``expect_passphrase`` - defaults to ``True`` for backward compatibility. If the passphrase is to be passed to ``gpg`` via pinentry, you wouldn't pass it here - so specify ``expect_passphrase=False`` in that case. If you don't do that, and don't pass a passphrase, a ``ValueError`` will be raised.
+
+.. versionadded:: 0.4.0
+   The ``passphrase`` keyword argument was added.
+
+.. versionadded:: 0.4.2
+   The ``expect_passphrase`` keyword argument was added.
 
 
 .. index:: Key; searching
@@ -387,7 +514,10 @@ If you want to encrypt data in a file (or file-like object), use::
 
     >>> encrypted_ascii_data = gpg.encrypt_file(stream, recipients) # e.g. after stream = open(filename, "rb")
 
-These methods both return an object such that ``str(encrypted_ascii_data)`` gives the encrypted data in a non-binary format.
+These methods both return an object such that:
+
+* If encryption succeeded, the returned object's ``ok`` attribute is set to ``True``. Otherwise, the returned object's ``ok`` attribute is set to ``False`` and its ``status`` attribute (a message string) provides more information as to the reason for failure (for example, ``'invalid recipient'`` or ``'key expired'``).
+* ``str(encrypted_ascii_data)`` gives the encrypted data in a non-binary format.
 
 In both cases, ``recipients`` is a list of key fingerprints for those recipients. For your convenience, if there is a single recipient, you can pass the fingerprint rather than a 1-element array containing the fingerprint. Both methods accept the following optional keyword arguments:
 
@@ -397,6 +527,9 @@ always_trust (defaults to ``False``)
     Skip key validation and assume that used keys are always fully trusted.
 passphrase (defaults to ``None``)
     A passphrase to use when accessing the keyrings.
+extra_args (defaults to ``None``)
+    A list of additional arguments to pass to the ``gpg`` executable. For example, you could pass ``extra_args=['-z', '0']``
+    to disable compression.
 
 .. index:: Encryption; symmetric
 
@@ -405,6 +538,9 @@ symmetric (defaults to ``False``)
 
 .. versionchanged:: 0.3.5
    A string can be passed for the ``symmetric`` argument, as well as ``True`` or ``False``. If a string is passed, it should be a symmetric cipher algorithm supported by the ``gpg`` you are using.
+
+.. versionadded:: 0.4.1
+   The ``extra_args`` keyword argument was added.
 
 The ``encrypt_file`` method takes the following additional keyword arguments:
 
@@ -429,7 +565,7 @@ If you want to decrypt data in a file (or file-like object), use::
 
     >>> decrypted_data = gpg.decrypt_file(stream) # e.g. after stream = open(filename, "rb")
 
-These methods both return an object such that ``str(decrypted_data)`` gives the decrypted data in a non-binary format.
+These methods both return an object such that ``str(decrypted_data)`` gives the decrypted data in a non-binary format. If decryption succeeded, the returned object's ``ok`` attribute is set to ``True``. Otherwise, the returned object's ``ok`` attribute is set to ``False`` and its ``status`` attribute (a message string) provides more information as to the reason for failure (for example, ``'bad passphrase'`` or ``'decryption failed'``).
 
 Both methods accept the following optional keyword arguments:
 
@@ -437,6 +573,14 @@ always_trust (defaults to ``False``)
     Skip key validation and assume that used keys are always fully trusted.
 passphrase (defaults to ``None``)
     A passphrase to use when accessing the keyrings.
+extra_args (defaults to ``None``)
+    A list of additional arguments to pass to the ``gpg`` executable.
+
+.. versionadded:: 0.4.1
+   The ``extra_args`` keyword argument was added.
+
+.. versionadded:: 0.4.2
+   Upon a successful decryption, the keyid of the decrypting key is stored in the ``key_id`` attribute of the result, if this information is provided by ``gpg``.
 
 The ``decrypt_file`` method takes the following additional keyword argument:
 
@@ -500,22 +644,28 @@ binary (defaults to ``False``)
     If ``True``, a binary signature (rather than armored ASCII) is created.
 output (defaults to ``None``)
     If specified, this is used as the file path where GPG outputs the signature. Convention dictates a ``.asc`` or ``.sig`` file extension for this.
+extra_args (defaults to ``None``)
+    A list of additional arguments to pass to the ``gpg`` executable.
 
 Note: If the data being signed is binary, calling ``str(signed_data)`` may raise exceptions. In that case, use the fact that ``signed_data.data`` holds the binary signed data. Usually the signature itself is ASCII; it's the message itself which may cause the exceptions to be raised. (Unless a detached signature is requested, the result of signing is the message with the signature appended.)
 
 The hash algorihm used when creating the signature can be found in the ``signed_data.hash_algo`` attribute.
 
-.. versionadded 0.2.5
+.. versionadded:: 0.2.5
+   The ``detach`` keyword argument was added in version 0.2.5.
 
-The ``detach`` keyword argument was added in version 0.2.5.
+.. versionadded:: 0.2.6
+   The ``binary`` keyword argument was added in version 0.2.6.
 
-.. versionadded 0.2.6
+.. versionadded:: 0.3.7
+   The ``output`` keyword argument was added in version 0.3.7.
 
-The ``binary`` keyword argument was added in version 0.2.6.
+.. versionadded:: 0.4.1
+   The ``extra_args`` keyword argument was added.
 
-.. versionadded 0.3.7
+.. versionadded:: 0.4.2
+   The keyid and username of the signing key are stored in the ``key_id`` and ``username`` attributes of the result, if this information is provided by ``gpg`` (which should happen if you specify ``extra_args=['--verbose']``).
 
-The ``output`` keyword argument was added in version 0.3.7.
 
 .. index:: Verification
 
@@ -548,6 +698,15 @@ The data that was signed should be in a separate file whose path is indicated by
 .. versionadded:: 0.2.5
    The second argument to verify_file (``data_filename``) was added.
 
+.. versionadded:: 0.4.1
+   An optional keyword argument to verify_file (``close_file``) was added. This
+   defaults to ``True``, but if set to ``False``, the signature stream is not
+   closed. It's then left to the caller to close it when appropriate.
+
+   An optional keyword argument ``extra_args`` was added. This defaults to ``None``,
+   but if a value is specified, it should be a list of extra arguments to pass to
+   the ``gpg`` executable.
+
 When a signature is verified, signer information is held in attributes of ``verified``: ``username``, ``key_id``, ``signature_id``,
 ``fingerprint``, ``trust_level`` and ``trust_text``. If the message wasn't signed, these attributes will all be set to ``None``.
 
@@ -568,6 +727,10 @@ is no problem detected with the signing key, the ``key_status`` attribute will b
 .. versionadded:: 0.3.3
    The ``key_status`` attribute was added.
 
+.. versionadded:: 0.4.2
+   The keyid and username of the signing key are stored in the ``key_id`` and ``username`` attributes of the result, if this information is provided by ``gpg``.
+
+
 Verifying detached signatures in memory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -579,8 +742,14 @@ where *data* should be a byte string of the data to be verified against the
 signature in the file named by *path_to_signature_file*. The returned value is
 the same as for the other verification methods.
 
+In addition, an ``extra_args`` keyword parameter can be specified. If provided,
+this is treated as a list of additional arguments to pass to the ``gpg`` executable.
+
 .. versionadded:: 0.3.6
    The ``verify_data`` method was added.
+
+.. versionadded:: 0.4.1
+   The ``extra_args`` keyword argument was added.
 
 Passphrases
 ===========
@@ -629,7 +798,11 @@ The latest version is available from the PyPI_ page.
 
 Status and Further Work
 =======================
-The ``gnupg`` module, being based on proven earlier versions, is quite usable. However, there are many features of GnuPG which this module does not take advantage of, or provide access to. How this module evolves will be determined by feedback from the user community.
+The ``gnupg`` module, being based on proven earlier versions, is quite usable, and comes packaged with Linux distributions such as Debian, Ubuntu and Fedora. However, there may be some features of GnuPG which this module does not take advantage of, or provide access to. How this module evolves will be determined by feedback from its user community.
+
+Support for GnuPG 2.1 is limited, because that version of GnuPG does not provide the ability to prevent pinentry popups in all cases. This package sends passphrases to the ``gpg`` executable via pipes, which is only possible under GnuPG 2.1 under limited conditions and requiring end-users to edit GnuPG configuration files.
+
+At present, functionality that requires interacting with the ``gpg`` executable (e.g. for key editing) is not available. This is because it requires essentially a state machine which manages the interaction - moreover, a state machine which varies according to the specific version of the ``gpg`` executable being used.
 
 If you find bugs and want to raise issues, please do so via the `BitBucket project`__.
 
@@ -643,8 +816,8 @@ __ discussion_
 
 .. _discussion: http://groups.google.com/group/python-gnupg
 
-Indices and tables
-==================
+Index
+=====
 
 * :ref:`genindex`
 
