@@ -310,8 +310,29 @@ class Verify(object):
                 # N.B. there might be other reasons
                 if not self.status:
                     self.status = 'incorrect passphrase'
+
+        elif key in ("NOTATION_FLAGS"):  # pragma: no cover
+            # In this case, two values are returned: <critical> <human_readable>
+            # This is fatal if <critical> is not 0
+            values = value.split()
+            if (values[0] != 0):
+                self.valid = False
+                self.key_id = value
+                self.status = values[1]
+            else:
+                pass
+        elif key in ("ENCRYPTION_COMPLIANCE_MODE",
+                     "DECRYPTION_COMPLIANCE_MODE",
+                     "VERIFICATION_COMPLIANCE_MODE"):  # pragma: no cover
+            # This mode is only fatal on 6001 : Screening hit on the ROCA vulnerability.
+            if (value == 6001):
+                self.valid = False
+                self.key_id = value
+                self.status = 'Compliance screening hit on the ROCA vulnerability'
+            else:
+                pass
         else:
-            raise ValueError("Unknown status message: %r" % key)
+            raise ValueError("Unknown status message: %s : %s " % (str(key), str(value)))
 
 class ImportResult(object):
     "Handle status messages for --import"
